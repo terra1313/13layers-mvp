@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from app.main import app
+from src.main import app
 
 client = TestClient(app)
 
@@ -10,7 +10,7 @@ def test_health():
     assert r.json() == {"status": "ok"}
 
 
-def test_products():
+def test_products_list():
     r = client.get("/api/products")
     assert r.status_code == 200
     assert len(r.json()) >= 1
