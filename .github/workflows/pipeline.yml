@@ -1,0 +1,171 @@
+# ==========================================================
+# Nom affiché dans l'onglet GitHub Actions
+# ==========================================================
+name: CI/CD
+
+# ==========================================================
+# Déclencheurs du pipeline
+#
+# - push sur main ou develop
+# - création/mise à jour d'une Pull Request
+# ==========================================================
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+  pull_request:
+
+# ==========================================================
+# Variables globales disponibles dans tout le workflow
+# ==========================================================
+env:
+  PYTHON_VERSION: "3.12"
+
+# ==========================================================
+# Définition des jobs
+# ==========================================================
+jobs:
+
+  # ========================================================
+  # JOB 1 : TEST
+  #
+  # Vérifie que l'application fonctionne :
+  # - installation des dépendances
+  # - exécution des tests pytest
+  # ========================================================
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ----------------------------------------------------
+      # Récupère le code du dépôt GitHub dans le runner
+      # ----------------------------------------------------
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------
+      # Installation de Python
+      # ----------------------------------------------------
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # ----------------------------------------------------
+      # Cache des dépendances pip
+      #
+      # Objectif :
+      # éviter de télécharger les paquets à chaque exécution
+      #
+      # hashFiles(requirements.txt)
+      # change automatiquement le cache si le fichier
+      # requirements.txt est modifié
+      # ----------------------------------------------------
+      - name: Pip-Cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      # ----------------------------------------------------
+      # Installation des dépendances du projet
+      # ----------------------------------------------------
+      - name: Dependencies installieren
+        run: python -m pip install -r requirements.txt
+
+      # ----------------------------------------------------
+      # Exécution des tests unitaires
+      #
+      # Si un test échoue :
+      # - le job devient rouge
+      # - les jobs suivants ne démarrent pas
+      # ----------------------------------------------------
+      - name: Tests ausführen
+        run: python -m pytest -v
+
+  # ========================================================
+  # JOB 2 : BUILD
+  #
+  # Ce job ne démarre que si le job TEST réussit.
+  #
+  # Objectif :
+  # créer un paquet ZIP de l'application.
+  # ========================================================
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ----------------------------------------------------
+      # Récupération du code source
+      # ----------------------------------------------------
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------
+      # Création du package applicatif
+      #
+      # Le dossier src est compressé dans build/app.zip
+      # ----------------------------------------------------
+      - name: Paket bauen
+        run: |
+          mkdir -p build
+          python -m zipfile -c build/app.zip src/
+
+      # ----------------------------------------------------
+      # Upload de l'artifact
+      #
+      # Un artifact est un fichier produit pendant le build
+      # qui pourra être réutilisé par les jobs suivants.
+      # ----------------------------------------------------
+      - name: Paket hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-paket
+          path: build/
+
+  # ========================================================
+  # JOB 3 : DEPLOY
+  #
+  # Ce job démarre uniquement :
+  # - si BUILD est terminé avec succès
+  # - ET si nous sommes sur la branche MAIN
+  #
+  # Pour l'instant :
+  # il ne déploie rien réellement.
+  #
+  # Il récupère simplement l'artifact pour préparer
+  # les futures étapes de déploiement.
+  # ========================================================
+  deploy:
+    needs: build
+
+    # Exécution uniquement sur la branche main
+    if: github.ref == 'refs/heads/main'
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ----------------------------------------------------
+      # Téléchargement de l'artifact produit par BUILD
+      # ----------------------------------------------------
+      - name: Paket herunterladen
+        uses: actions/download-artifact@v4
+        with:
+          name: app-paket
+          path: build/
+
+      # ----------------------------------------------------
+      # Vérification du contenu téléchargé
+      #
+      # Affiche les fichiers présents dans build/
+      # ----------------------------------------------------
+      - name: Inhalt anzeigen
+        run: ls -l build/
